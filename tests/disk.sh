@@ -65,18 +65,17 @@ expect() { grep -qi "$1" "$work/headers"; }
 artifact=/releases/v1.2.3/manifest.json
 start_mirror
 for attempt in $(seq 1 30); do
-  if request "$artifact" -H 'Range: bytes=0-3' 2>/dev/null && expect '^HTTP/.* 206'; then break; fi
+  if request "$artifact" -H 'Range: bytes=5-9' 2>/dev/null && expect '^HTTP/.* 206'; then break; fi
   sleep 1
 done
 expect '^HTTP/.* 206'
 expect '^X-Mirror-Cache: MISS'
-request "$artifact"
+request "$artifact" -H 'Range: bytes=0-3'
+expect '^HTTP/.* 206'
 expect '^X-Mirror-Cache: MISS'
-cp "$work/body" "$work/full"
 request "$artifact"
 expect '^X-Mirror-Cache: HIT'
-cmp "$work/full" "$work/body"
-sleep 1
+cp "$work/body" "$work/full"
 request "$artifact" -H 'Range: bytes=5-9'
 expect '^HTTP/.* 206'
 expect '^X-Mirror-Cache: HIT'

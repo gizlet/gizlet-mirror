@@ -228,7 +228,7 @@ server {
         proxy_cache_lock on;
         proxy_cache_lock_age 300s;
         proxy_cache_lock_timeout 300s;
-        proxy_cache_max_range_offset 0;
+        proxy_cache_max_range_offset 1;
         add_header X-Mirror-Cache $upstream_cache_status always;
         proxy_pass @DOWNLOAD_UPSTREAM@;
     }

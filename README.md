@@ -35,7 +35,7 @@ Create the host directories first. The container requires a mount at `/cache` an
 
 ## Download caching
 
-The mirror caches complete responses that the origin marks public and immutable. It admits versioned Gizlet OS files and packages addressed by a `sha256` query parameter. Credentials, mutable downloads, redirects, and private or `no-store` responses bypass storage. The download header `X-Mirror-Cache` reports nginx's result. A cached file supports Range and resume. A Range request on a cold cache goes to the origin without fetching the whole file.
+The mirror caches complete responses that the origin marks public and immutable. It admits versioned Gizlet OS files and packages addressed by a `sha256` query parameter. Credentials, mutable downloads, redirects, and private or `no-store` responses bypass storage. The download header `X-Mirror-Cache` reports nginx's result. A cached file supports Range and resume. A Range request starting at byte zero can fill an empty cache. On a cache miss, a resume from a later byte goes directly to the origin.
 
 ### S3
 
