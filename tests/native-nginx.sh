@@ -24,7 +24,7 @@ trap cleanup EXIT
 
 "$nginx" -v
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=mirror.test \
-  -addext 'subjectAltName=DNS:mirror.test,DNS:www.mirror.test,DNS:api.mirror.test,DNS:dl.mirror.test,DNS:origin.test,DNS:api.origin.test,DNS:dl.origin.test' \
+  -addext 'subjectAltName=DNS:mirror.test,DNS:www.mirror.test,DNS:origin.test,DNS:hk.origin.test' \
   -keyout "$work/key.pem" -out "$work/cert.pem" 2>"$work/openssl.log"
 
 "$dnsmasq" --conf-file=/dev/null --keep-in-foreground --bind-interfaces \
@@ -56,19 +56,24 @@ http {
 
         location = / {
             default_type text/html;
-            return 200 '<a href="https://api.origin.test/v1">API</a>';
+            return 200 '<a href="https://origin.test/api/v1">API</a>';
         }
 
-        location = /v1 {
+        location = /api/v1 {
             default_type application/json;
-            return 200 '{"download":"https://dl.origin.test/releases/v1.2.3/artifact","verification_uri":"https://origin.test/device"}';
+            return 200 '{"download":"https://origin.test/assets/releases/v1.2.3/artifact","verification_uri":"https://origin.test/device"}';
         }
 
-        location = /redirect {
+        location = /api/v1/os/releases/latest {
+            default_type application/json;
+            return 200 '{"tag":"v1.2.3","manifest_url":"https://origin.test/assets/releases/v1.2.3/manifest.json","signature_url":"https://origin.test/assets/releases/v1.2.3/manifest.json.sig"}';
+        }
+
+        location = /assets/redirect {
             return 302 https://origin.test/device;
         }
 
-        location = /releases/v1.2.3/artifact {
+        location = /assets/releases/v1.2.3/artifact {
             alias $work/artifact;
             add_header Cache-Control 'public, max-age=3600, immutable';
             add_header X-Checksum-Sha256 $checksum;
@@ -84,7 +89,7 @@ render_mirror() {
     CACHE_PATH="$work/cache" CACHE_MAX_SIZE=64m CACHE_MIN_FREE=1m \
     HTTP_PORT="$http_port" HTTPS_PORT="$https_port" ORIGIN_HTTPS_PORT="$origin_port" \
     ORIGIN_DOMAIN=origin.test RESOLVER="127.0.0.1:$dns_port" \
-    "$here/render.sh" mirror.test > "$work/mirror.conf"
+    "$here/render.sh" "${1:-mirror.test}" > "$work/mirror.conf"
 }
 cat > "$work/nginx.conf" <<EOF
 daemon off;
@@ -99,7 +104,7 @@ http {
 EOF
 
 start_mirror() {
-  render_mirror
+  render_mirror "$@"
   "$nginx" -t -e stderr -p "$work/" -c "$work/nginx.conf"
   "$nginx" -e stderr -p "$work/" -c "$work/nginx.conf" >"$work/mirror.log" 2>&1 &
   pids[2]=$!
@@ -119,48 +124,64 @@ for attempt in $(seq 1 15); do
   if request mirror.test / 2>/dev/null; then break; fi
   sleep 1
 done
-grep -Fq 'https://api.mirror.test/v1' "$work/body"
+grep -Fq 'https://mirror.test/api/v1' "$work/body"
 request www.mirror.test /device
 grep -qi '^Location: https://mirror.test/device' "$work/headers"
 curl -fsS --noproxy '*' --max-time 3 --resolve "mirror.test:$http_port:127.0.0.1" \
-  -D "$work/headers" -o /dev/null "http://mirror.test:$http_port/v1"
+  -D "$work/headers" -o /dev/null "http://mirror.test:$http_port/api/v1"
 grep -q '^HTTP/.* 301' "$work/headers"
-grep -qi '^Location: https://mirror.test/v1' "$work/headers"
-request api.mirror.test /v1
-grep -Fq 'https://dl.mirror.test/releases/v1.2.3/artifact' "$work/body"
+grep -qi '^Location: https://mirror.test/api/v1' "$work/headers"
+request mirror.test /api/v1
+grep -Fq 'https://mirror.test/assets/releases/v1.2.3/artifact' "$work/body"
 grep -Fq 'https://mirror.test/device' "$work/body"
-request dl.mirror.test /redirect
+request mirror.test /api/v1/os/releases/latest
+grep -Fq '"manifest_url":"https://mirror.test/assets/releases/v1.2.3/manifest.json"' "$work/body"
+grep -Fq '"signature_url":"https://mirror.test/assets/releases/v1.2.3/manifest.json.sig"' "$work/body"
+request mirror.test /assets/redirect
 grep -qi '^Location: https://mirror.test/device' "$work/headers"
 
-artifact=/releases/v1.2.3/artifact
-request dl.mirror.test "$artifact"
+artifact=/assets/releases/v1.2.3/artifact
+request mirror.test "$artifact"
 grep -qi '^X-Mirror-Cache: MISS' "$work/headers"
-request dl.mirror.test "$artifact"
+request mirror.test "$artifact"
 grep -qi '^X-Mirror-Cache: HIT' "$work/headers"
 cmp "$work/artifact" "$work/body"
 
 kill "${pids[2]}"
 wait "${pids[2]}"
 unset 'pids[2]'
+start_mirror hk.origin.test
+for attempt in $(seq 1 15); do
+  if request hk.origin.test /api/v1/os/releases/latest 2>/dev/null; then break; fi
+  sleep 1
+done
+grep -Fq '"manifest_url":"https://hk.origin.test/assets/releases/v1.2.3/manifest.json"' "$work/body"
+grep -Fq '"signature_url":"https://hk.origin.test/assets/releases/v1.2.3/manifest.json.sig"' "$work/body"
+request hk.origin.test "$artifact" -H 'Range: bytes=5-9'
+grep -q '^HTTP/.* 206' "$work/headers"
+printf '56789' | cmp - "$work/body"
+kill "${pids[2]}"
+wait "${pids[2]}"
+unset 'pids[2]'
 SERVE_SITE=false CACHE_ENABLED=false S3_BUCKET=unused start_mirror
 for attempt in $(seq 1 15); do
-  if request api.mirror.test /v1 2>/dev/null; then break; fi
+  if request mirror.test /api/v1 2>/dev/null; then break; fi
   sleep 1
 done
 grep -Fq 'https://origin.test/device' "$work/body"
-grep -Fq 'https://dl.mirror.test/releases/v1.2.3/artifact' "$work/body"
+grep -Fq 'https://mirror.test/assets/releases/v1.2.3/artifact' "$work/body"
 for host in mirror.test www.mirror.test; do
   request "$host" /device --no-fail
   grep -q '^HTTP/.* 404' "$work/headers"
 done
-request dl.mirror.test /redirect
+request mirror.test /assets/redirect
 grep -qi '^Location: https://origin.test/device' "$work/headers"
 
-request dl.mirror.test "$artifact"
+request mirror.test "$artifact"
 grep -qi '^Cache-Control: public, max-age=3600, immutable' "$work/headers"
 grep -qi "^X-Checksum-Sha256: $checksum" "$work/headers"
 cmp "$work/artifact" "$work/body"
-request dl.mirror.test "$artifact" -H 'Range: bytes=5-9'
+request mirror.test "$artifact" -H 'Range: bytes=5-9'
 grep -q '^HTTP/.* 206' "$work/headers"
 grep -qi '^Content-Range: bytes 5-9/37' "$work/headers"
 grep -qi "^X-Checksum-Sha256: $checksum" "$work/headers"
@@ -168,7 +189,7 @@ printf '56789' | cmp - "$work/body"
 kill "${pids[1]}"
 wait "${pids[1]}" || true
 unset 'pids[1]'
-request dl.mirror.test "$artifact" --no-fail
+request mirror.test "$artifact" --no-fail
 grep -q '^HTTP/.* 502' "$work/headers"
 if SERVE_SITE=invalid "$here/render.sh" mirror.test > /dev/null 2>"$work/invalid.log"; then
   echo 'render.sh accepted an invalid SERVE_SITE value' >&2
@@ -180,4 +201,9 @@ if CACHE_ENABLED=invalid "$here/render.sh" mirror.test > /dev/null 2>"$work/inva
   exit 1
 fi
 grep -Fq 'CACHE_ENABLED must be true or false' "$work/invalid.log"
+if ORIGIN_DOMAIN=origin.test "$here/render.sh" www.origin.test > /dev/null 2>"$work/invalid.log"; then
+  echo 'render.sh accepted a hostname used by the origin' >&2
+  exit 1
+fi
+grep -Fq 'the mirror domain conflicts with a Gizlet origin host' "$work/invalid.log"
 echo 'Native nginx site, TLS, and download cache modes passed.'

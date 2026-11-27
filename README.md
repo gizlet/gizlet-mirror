@@ -4,7 +4,7 @@ Run Gizlet under your own domain with an nginx reverse proxy and optional downlo
 
 ## Deploy
 
-By default, point the mirror domain and its `www`, `api`, and `dl` hosts at your server and obtain a TLS certificate for all four names. For `gizlet.example`, the four hosts serve the site, the redirect to the site, the JSON API, and downloads respectively.
+Point the mirror domain and its `www` host at your server and obtain a TLS certificate for both names. The mirror domain serves the website, `/api/v1/...`, and `/assets/...`. The `www` host redirects to the mirror domain.
 
 ```sh
 docker run -d --name gizlet-mirror --restart unless-stopped \
@@ -36,15 +36,17 @@ With caching enabled, mount a persistent directory or Docker named volume at `/c
 | `CACHE_MIN_FREE` | `5g` | Free space nginx tries to maintain on the cache filesystem |
 | `CACHE_INACTIVE` | `30d` | Evict entries that have not been accessed for this long |
 
-For an API and download mirror, add `-e SERVE_SITE=false` to `docker run`. Only `api.<mirror>` and `dl.<mirror>` need DNS records and TLS certificate coverage. HTTPS requests to the bare mirror domain and `www.<mirror>` return `404` if they reach nginx with valid TLS. Website links and redirects point to `ORIGIN_DOMAIN`.
+For an API and download mirror, add `-e SERVE_SITE=false` to `docker run`. Requests to `/api/v1/...` and `/assets/...` still work on the mirror domain. Other website paths return `404`. Website links and redirects point to `ORIGIN_DOMAIN`.
 
 ## Downloads
 
-Downloads come from `dl.<origin>`. With the default origin, Gizlet's download service reads files from Cloudflare R2 and handles GitHub fallbacks. With `CACHE_ENABLED=false`, the mirror streams responses from that service and forwards byte-range requests for resume, checksum headers, and the origin's `Cache-Control` headers.
+The mirror forwards `/assets/...` to the same path on `ORIGIN_DOMAIN`. With the default origin, Gizlet's download service reads files from Cloudflare R2 and handles GitHub fallbacks. With `CACHE_ENABLED=false`, the mirror streams responses from that service and forwards byte-range requests for resume, checksum headers, and the origin's `Cache-Control` headers.
+
+The OS release lookup at `https://<mirror>/api/v1/os/releases/latest` uses the same path on `ORIGIN_DOMAIN`. The mirror rewrites the returned manifest and signature URLs to `MIRROR_DOMAIN`. A first-party mirror can also use a subdomain of the origin, such as `hk.gizlet.io`. Use a trusted host, since browsers can send origin-domain cookies to subdomains.
 
 ### Local cache
 
-The mirror caches complete responses that the origin marks public and immutable. It admits versioned Gizlet OS files and packages addressed by a `sha256` query parameter. Credentials, mutable downloads, redirects, and private or `no-store` responses bypass storage. The download header `X-Mirror-Cache` reports nginx's result. A cached file supports Range and resume. A Range request starting at byte zero can fill an empty cache. On a cache miss, a resume from a later byte goes directly to the origin.
+The mirror caches complete responses that the origin marks public and immutable. It admits versioned Gizlet OS files. Store package requests pass through to the origin Worker for release and visibility checks. Credentials, mutable downloads, redirects, and private or `no-store` responses bypass storage. The download header `X-Mirror-Cache` reports nginx's result. A cached file supports Range and resume. A Range request starting at byte zero can fill an empty cache. On a cache miss, a resume from a later byte goes directly to the origin.
 
 ### S3
 
@@ -64,7 +66,7 @@ The S3 layer stages at most one full response at a time on `/cache`. It stages r
 
 ## Domain and account behavior
 
-The proxy rewrites Gizlet URLs, redirects, cookie domains, and account CORS headers for the mirror. The OIDC publishing audience remains `https://api.gizlet.io`. GitHub sign-in and linking use the origin callback. Email and password sign-in and the device flow work on the mirror. To have account emails link to a mirror, the Gizlet maintainers add its domain to the origin's `SITE_DOMAINS` setting. The origin sees the mirror server's address for account rate limits, so sign-in limits are shared among its users.
+The proxy rewrites Gizlet URLs, redirects, cookie domains, and account CORS headers for the mirror. Store publishing requests use the canonical origin as the OIDC audience. GitHub sign-in and linking use the origin callback. Email and password sign-in and the device flow work on the mirror. To have account emails link to a mirror, the Gizlet maintainers add its domain to the origin's `SITE_DOMAINS` setting. The origin sees the mirror server's address for account rate limits, so sign-in limits are shared among its users.
 
 ## Development
 

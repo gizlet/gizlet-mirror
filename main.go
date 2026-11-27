@@ -275,7 +275,7 @@ func main() {
 	if originDomain == "" {
 		originDomain = "gizlet.io"
 	}
-	originHost := "dl." + originDomain
+	originHost := originDomain
 	if originPort := os.Getenv("ORIGIN_HTTPS_PORT"); originPort != "" && originPort != "443" {
 		originHost = net.JoinHostPort(originHost, originPort)
 	}

@@ -14,7 +14,7 @@ cleanup() {
 trap cleanup EXIT
 
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=mirror.test \
-  -addext 'subjectAltName=DNS:mirror.test,DNS:dl.mirror.test,DNS:dl.origin.test' \
+  -addext 'subjectAltName=DNS:mirror.test,DNS:origin.test' \
   -keyout "$work/key.pem" -out "$work/cert.pem" 2>/dev/null
 cat > "$work/default.conf" <<'EOF'
 server {
@@ -22,12 +22,12 @@ server {
     ssl_certificate /certs/cert.pem;
     ssl_certificate_key /certs/key.pem;
 
-    location = /releases/v1.2.3/manifest.json {
+    location = /assets/releases/v1.2.3/manifest.json {
         alias /usr/share/nginx/html/index.html;
         add_header Cache-Control "public, max-age=3600, immutable";
     }
 
-    location = /releases/v1.2.3/private {
+    location = /assets/releases/v1.2.3/private {
         alias /usr/share/nginx/html/index.html;
         add_header Cache-Control "no-store";
     }
@@ -41,7 +41,7 @@ grep -q 'Mount a persistent volume at /cache' "$work/no-volume.log"
 
 "$engine" network create "$name" >/dev/null
 "$engine" volume create "$name" >/dev/null
-"$engine" run -d --name "$name-origin" --network "$name" --network-alias dl.origin.test \
+"$engine" run -d --name "$name-origin" --network "$name" --network-alias origin.test \
   -v "$work/cert.pem:/certs/cert.pem:ro" -v "$work/key.pem:/certs/key.pem:ro" \
   -v "$work/default.conf:/etc/nginx/conf.d/default.conf:ro" \
   --entrypoint nginx "$image" -g 'daemon off;' >/dev/null
@@ -61,11 +61,11 @@ start_mirror() {
 request() {
   local path="$1"
   shift
-  curl -ksS --noproxy '*' --max-time 5 --resolve "dl.mirror.test:$port:127.0.0.1" \
-    -D "$work/headers" -o "$work/body" "$@" "https://dl.mirror.test:$port$path"
+  curl -ksS --noproxy '*' --max-time 5 --resolve "mirror.test:$port:127.0.0.1" \
+    -D "$work/headers" -o "$work/body" "$@" "https://mirror.test:$port$path"
 }
 expect() { grep -qi "$1" "$work/headers"; }
-artifact=/releases/v1.2.3/manifest.json
+artifact=/assets/releases/v1.2.3/manifest.json
 start_mirror true -v "$name:/cache"
 for attempt in $(seq 1 30); do
   if request "$artifact" -H 'Range: bytes=5-9' 2>/dev/null && expect '^HTTP/.* 206'; then break; fi
@@ -86,7 +86,7 @@ dd if="$work/full" bs=1 skip=5 count=5 2>/dev/null | cmp - "$work/body"
 request "$artifact" -H 'Authorization: Bearer fixture'
 expect '^X-Mirror-Cache: BYPASS'
 for attempt in 1 2; do
-  request /releases/v1.2.3/private
+  request /assets/releases/v1.2.3/private
   expect '^X-Mirror-Cache: MISS'
 done
 "$engine" rm -f "$name" "$name-origin" >/dev/null
