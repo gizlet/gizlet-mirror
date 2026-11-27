@@ -1,9 +1,9 @@
-# Gizlet mirror: serves @ORIGIN@ under @MIRROR@ by reverse-proxying every host.
+# Gizlet mirror: serves @ORIGIN@ under @MIRROR@ with an optional website.
 #
-#   @MIRROR@          -> @ORIGIN@          (site, share pages, sign-in, /device, /account)
+#   @MIRROR@          -> @ORIGIN@          (optional site, share pages, sign-in)
 #   api.@MIRROR@      -> api.@ORIGIN@      (JSON API, /v1/...)
 #   dl.@MIRROR@       -> dl.@ORIGIN@       (packages and art, streamed)
-#   www.@MIRROR@      -> 301 to @MIRROR@
+#   www.@MIRROR@      -> 301 to @MIRROR@   (when the site is enabled)
 #
 # Rendered by render.sh. Goes in the http context (conf.d).
 
@@ -24,7 +24,7 @@ map $http_referer $gizlet_mirror_referer {
 # Account routes answer CORS with Access-Control-Allow-Origin: https://@ORIGIN@.
 map $upstream_http_access_control_allow_origin $gizlet_mirror_acao {
     default                 $upstream_http_access_control_allow_origin;
-    "https://@ORIGIN@"      "https://@MIRROR@";
+    "https://@ORIGIN@"      "https://@SITE_DOMAIN@";
 }
 
 # The site's Content-Security-Policy names the download host.
@@ -56,6 +56,7 @@ upstream gizlet_mirror_dl {
 
 ssl_session_cache shared:gizlet_mirror:10m;
 
+@CACHE_BEGIN@
 proxy_cache_path @CACHE_PATH@ levels=1:2 keys_zone=gizlet_downloads:32m
     max_size=@CACHE_MAX_SIZE@ min_free=@CACHE_MIN_FREE@ inactive=@CACHE_INACTIVE@ use_temp_path=off;
 
@@ -75,6 +76,7 @@ map "$upstream_status:$upstream_http_cache_control" $gizlet_skip_store {
     ~*(?:private|no-cache|no-store) 1;
     ~*^200:(?=.*\bpublic\b)(?=.*\bimmutable\b) 0;
 }
+@CACHE_END@
 
 # Plain HTTP: ACME challenges for the certificate, everything else to HTTPS.
 server {
@@ -95,22 +97,21 @@ server {
     listen @HTTPS_PORT@ ssl;
     listen [::]:@HTTPS_PORT@ ssl;
     http2 on;
-    server_name www.@MIRROR@;
+    server_name @SITE_SERVER_NAMES@;
 
     ssl_certificate     @SSL_CERT@;
     ssl_certificate_key @SSL_KEY@;
     ssl_protocols       TLSv1.2 TLSv1.3;
 
-    return 301 https://@MIRROR@$request_uri;
+    return @SITE_RESPONSE@;
 }
 
-# The site and the API: absolute @ORIGIN@ URLs in pages, scripts and JSON (share_url,
-# api_url, package URLs, status_url, verification_uri, ...) are rewritten to the mirror.
+# The API and optional site: rewrite absolute URLs in pages, scripts and JSON.
 server {
     listen @HTTPS_PORT@ ssl;
     listen [::]:@HTTPS_PORT@ ssl;
     http2 on;
-    server_name @MIRROR@ api.@MIRROR@;
+    server_name @PROXY_SERVER_NAMES@;
 
     ssl_certificate     @SSL_CERT@;
     ssl_certificate_key @SSL_KEY@;
@@ -138,7 +139,8 @@ server {
     proxy_ssl_protocols TLSv1.2 TLSv1.3;
     proxy_ssl_session_reuse on;
 
-    proxy_redirect "~^https://(?<rh>(api\.|dl\.)?)@ORIGIN_RE@(?<rp>[/?#].*)?$" "https://${rh}@MIRROR@${rp}";
+    proxy_redirect "~^https://(?<rh>api\.|dl\.)@ORIGIN_RE@(?<rp>[/?#].*)?$" "https://${rh}@MIRROR@${rp}";
+    proxy_redirect "~^https://@ORIGIN_RE@(?<sp>[/?#].*)?$" "https://@SITE_DOMAIN@${sp}";
     # Better Auth's cookies are for @ORIGIN@ and its subdomains (a leading dot is ignored).
     proxy_cookie_domain @ORIGIN@ @MIRROR@;
 
@@ -156,7 +158,7 @@ server {
     sub_filter "audience=https://api.@ORIGIN@" "audience=https://api.@ORIGIN@";
     sub_filter "https://api.@ORIGIN@" "https://api.@MIRROR@";
     sub_filter "https://dl.@ORIGIN@"  "https://dl.@MIRROR@";
-    sub_filter "https://@ORIGIN@"     "https://@MIRROR@";
+    sub_filter "https://@ORIGIN@"     "https://@SITE_DOMAIN@";
 
     gzip on;
     gzip_vary on;
@@ -200,7 +202,6 @@ server {
     proxy_set_header X-Forwarded-Host $host;
     proxy_set_header X-Forwarded-Proto https;
     proxy_set_header Accept-Encoding "";
-    proxy_set_header X-Gizlet-Skip-Cache $gizlet_skip_cache;
 
     proxy_ssl_server_name on;
     proxy_ssl_name dl.@ORIGIN@;
@@ -210,16 +211,22 @@ server {
     proxy_ssl_protocols TLSv1.2 TLSv1.3;
     proxy_ssl_session_reuse on;
 
+@CACHE_BEGIN@
+    proxy_set_header X-Gizlet-Skip-Cache $gizlet_skip_cache;
+@CACHE_END@
+    proxy_buffering @DOWNLOAD_BUFFERING@;
     proxy_request_buffering off;
     proxy_max_temp_file_size 0;
     proxy_read_timeout 300s;
     proxy_send_timeout 300s;
 
     # Old releases redirect to GitHub (left as is); / redirects to the site.
-    proxy_redirect "~^https://(?<rh>(api\.|dl\.)?)@ORIGIN_RE@(?<rp>[/?#].*)?$" "https://${rh}@MIRROR@${rp}";
+    proxy_redirect "~^https://(?<rh>api\.|dl\.)@ORIGIN_RE@(?<rp>[/?#].*)?$" "https://${rh}@MIRROR@${rp}";
+    proxy_redirect "~^https://@ORIGIN_RE@(?<sp>[/?#].*)?$" "https://@SITE_DOMAIN@${sp}";
 
     location / {
         limit_except GET HEAD { deny all; }
+@CACHE_BEGIN@
         proxy_cache gizlet_downloads;
         proxy_cache_key "dl.@ORIGIN@$request_uri";
         proxy_cache_bypass $gizlet_skip_cache;
@@ -230,6 +237,7 @@ server {
         proxy_cache_lock_timeout 300s;
         proxy_cache_max_range_offset 1;
         add_header X-Mirror-Cache $upstream_cache_status always;
+@CACHE_END@
         proxy_pass @DOWNLOAD_UPSTREAM@;
     }
 }

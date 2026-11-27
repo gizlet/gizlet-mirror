@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if ! awk '$5 == "/cache" { mounted = 1 } END { exit !mounted }' /proc/self/mountinfo; then
+cache_enabled="${CACHE_ENABLED-true}"
+if [[ "$cache_enabled" == true ]] && ! awk '$5 == "/cache" { mounted = 1 } END { exit !mounted }' /proc/self/mountinfo; then
   echo "Mount a persistent volume at /cache before starting the mirror." >&2
   exit 1
 fi
 
 CACHE_PATH=/cache/nginx render.sh "${MIRROR_DOMAIN:-}" > /etc/nginx/conf.d/default.conf
-install -d -o nginx -g nginx /cache/nginx
+if [[ "$cache_enabled" == true ]]; then
+  install -d -o nginx -g nginx /cache/nginx
+fi
 nginx -t
 
-if [[ -z "${S3_BUCKET:-}" ]]; then
+if [[ "$cache_enabled" == false || -z "${S3_BUCKET:-}" ]]; then
   exec nginx -g 'daemon off;'
 fi
 

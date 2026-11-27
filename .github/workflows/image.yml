@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
   workflow_dispatch:
 
 permissions:
@@ -38,7 +39,7 @@ jobs:
       - run: bash tests/native-nginx.sh
 
   publish:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: [test, native-nginx]
     runs-on: ubuntu-latest
     permissions:
@@ -46,6 +47,10 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7
+      - name: Validate release version
+        if: github.ref_type == 'tag'
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
@@ -58,12 +63,15 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/gizlet/gizlet-mirror:sha-${{ github.sha }}
-      - name: Update latest from the current main
+          tags: ghcr.io/gizlet/gizlet-mirror:${{ github.ref_type == 'tag' && github.ref_name || format('sha-{0}', github.sha) }}
+      - name: Update latest from the newest release
+        if: github.ref_type == 'tag'
         run: |
-          current_head="$(git ls-remote origin refs/heads/main | cut -f1)"
-          if [[ "$current_head" == "$GITHUB_SHA" ]]; then
+          latest_tag="$(git ls-remote --refs --tags origin 'v*' |
+            sed -nE 's|^[[:xdigit:]]+[[:space:]]+refs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$|\1|p' |
+            sort -V | tail -n 1)"
+          if [[ "$latest_tag" == "$GITHUB_REF_NAME" ]]; then
             docker buildx imagetools create \
               --tag ghcr.io/gizlet/gizlet-mirror:latest \
-              "ghcr.io/gizlet/gizlet-mirror:sha-$GITHUB_SHA"
+              "ghcr.io/gizlet/gizlet-mirror:$GITHUB_REF_NAME"
           fi

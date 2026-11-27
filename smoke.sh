@@ -26,10 +26,9 @@ mkdir -p "$work/acme"
 
 docker run -d --name "$name" \
   -e MIRROR_DOMAIN="$mirror" -e ORIGIN_DOMAIN="$origin" \
+  -e CACHE_ENABLED=false \
   -e SSL_CERT=/certs/fullchain.pem -e SSL_KEY=/certs/privkey.pem \
-  -e CACHE_MIN_FREE=64m \
   -p "127.0.0.1:$https_port:443" -p "127.0.0.1:$http_port:80" \
-  -v /cache \
   -v "$work/fullchain.pem:/certs/fullchain.pem:ro" \
   -v "$work/privkey.pem:/certs/privkey.pem:ro" \
   -v "$work/acme:/var/www/acme:ro" \

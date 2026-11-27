@@ -47,12 +47,15 @@ grep -q 'Mount a persistent volume at /cache' "$work/no-volume.log"
   --entrypoint nginx "$image" -g 'daemon off;' >/dev/null
 resolver="$("$engine" exec "$name-origin" awk '/^nameserver / {print $2; exit}' /etc/resolv.conf)"
 start_mirror() {
+  local cache_enabled="$1"
+  shift
   "$engine" run -d --name "$name" --network "$name" -p '127.0.0.1::443' \
     -e MIRROR_DOMAIN=mirror.test -e ORIGIN_DOMAIN=origin.test \
+    -e CACHE_ENABLED="$cache_enabled" \
     -e SSL_CERT=/certs/cert.pem -e SSL_KEY=/certs/key.pem -e CA_BUNDLE=/certs/cert.pem \
     -e RESOLVER="$resolver" -e CACHE_MAX_SIZE=64m -e CACHE_MIN_FREE=1m \
     -v "$work/cert.pem:/certs/cert.pem:ro" -v "$work/key.pem:/certs/key.pem:ro" \
-    -v "$name:/cache" "$image" >/dev/null
+    "$@" "$image" >/dev/null
   port="$("$engine" port "$name" 443/tcp | head -1 | cut -d: -f2)"
 }
 request() {
@@ -63,7 +66,7 @@ request() {
 }
 expect() { grep -qi "$1" "$work/headers"; }
 artifact=/releases/v1.2.3/manifest.json
-start_mirror
+start_mirror true -v "$name:/cache"
 for attempt in $(seq 1 30); do
   if request "$artifact" -H 'Range: bytes=5-9' 2>/dev/null && expect '^HTTP/.* 206'; then break; fi
   sleep 1
@@ -87,11 +90,21 @@ for attempt in 1 2; do
   expect '^X-Mirror-Cache: MISS'
 done
 "$engine" rm -f "$name" "$name-origin" >/dev/null
-start_mirror
+start_mirror true -v "$name:/cache"
 for attempt in $(seq 1 15); do
   if request "$artifact" 2>/dev/null && expect '^X-Mirror-Cache: HIT'; then break; fi
   sleep 1
 done
 expect '^X-Mirror-Cache: HIT'
 cmp "$work/full" "$work/body"
-echo 'Persistent disk cache checks passed.'
+"$engine" rm -f "$name" >/dev/null
+start_mirror false -e S3_BUCKET=unused -e SERVE_SITE=false
+for attempt in $(seq 1 15); do
+  if curl -sS --noproxy '*' --max-time 3 --cacert "$work/cert.pem" \
+    --resolve "mirror.test:$port:127.0.0.1" -D "$work/headers" -o /dev/null \
+    "https://mirror.test:$port/" 2>/dev/null && expect '^HTTP/.* 404'; then break; fi
+  sleep 1
+done
+expect '^HTTP/.* 404'
+"$engine" exec "$name" nginx -t
+echo 'Persistent disk cache and no-cache container startup checks passed.'
