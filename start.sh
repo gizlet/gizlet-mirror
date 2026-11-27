@@ -6,7 +6,7 @@ if ! awk '$5 == "/cache" { mounted = 1 } END { exit !mounted }' /proc/self/mount
   exit 1
 fi
 
-render.sh "${MIRROR_DOMAIN:-}" > /etc/nginx/conf.d/default.conf
+CACHE_PATH=/cache/nginx render.sh "${MIRROR_DOMAIN:-}" > /etc/nginx/conf.d/default.conf
 install -d -o nginx -g nginx /cache/nginx
 nginx -t
 

@@ -34,29 +34,29 @@ map $upstream_http_content_security_policy $gizlet_mirror_csp {
 }
 
 upstream gizlet_mirror_site {
-    zone gizlet_mirror_site 64k;
+    zone gizlet_mirror_site 256k;
     resolver @RESOLVER@ valid=300s ipv6=off;
-    server @ORIGIN@:443 resolve;
+    server @ORIGIN@:@ORIGIN_HTTPS_PORT@ resolve;
     keepalive 16;
 }
 
 upstream gizlet_mirror_api {
-    zone gizlet_mirror_api 64k;
+    zone gizlet_mirror_api 256k;
     resolver @RESOLVER@ valid=300s ipv6=off;
-    server api.@ORIGIN@:443 resolve;
+    server api.@ORIGIN@:@ORIGIN_HTTPS_PORT@ resolve;
     keepalive 16;
 }
 
 upstream gizlet_mirror_dl {
-    zone gizlet_mirror_dl 64k;
+    zone gizlet_mirror_dl 256k;
     resolver @RESOLVER@ valid=300s ipv6=off;
-    server dl.@ORIGIN@:443 resolve;
+    server dl.@ORIGIN@:@ORIGIN_HTTPS_PORT@ resolve;
     keepalive 16;
 }
 
 ssl_session_cache shared:gizlet_mirror:10m;
 
-proxy_cache_path /cache/nginx levels=1:2 keys_zone=gizlet_downloads:32m
+proxy_cache_path @CACHE_PATH@ levels=1:2 keys_zone=gizlet_downloads:32m
     max_size=@CACHE_MAX_SIZE@ min_free=@CACHE_MIN_FREE@ inactive=@CACHE_INACTIVE@ use_temp_path=off;
 
 map $request_uri $gizlet_versioned_download {

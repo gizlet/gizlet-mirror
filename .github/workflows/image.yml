@@ -1,4 +1,4 @@
-name: Mirror image
+name: Mirror CI and GHCR release
 
 on:
   pull_request:
@@ -21,9 +21,25 @@ jobs:
       - run: docker build -t gizlet-mirror:test .
       - run: bash tests/disk.sh
 
+  native-nginx:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install nginx and dnsmasq
+        run: |
+          curl -fsSL https://nginx.org/keys/nginx_signing.key | gpg --dearmor > "$RUNNER_TEMP/nginx.gpg"
+          fingerprints="$(gpg --show-keys --with-colons "$RUNNER_TEMP/nginx.gpg" | cut -d: -f1,10)"
+          grep -Fxq 'fpr:573BFD6B3D8FBC641079A6ABABF5BD827BD9BF62' <<< "$fingerprints"
+          sudo install -m 0644 "$RUNNER_TEMP/nginx.gpg" /usr/share/keyrings/nginx-mirror-test.gpg
+          echo 'deb [signed-by=/usr/share/keyrings/nginx-mirror-test.gpg] https://nginx.org/packages/ubuntu noble nginx' |
+            sudo tee /etc/apt/sources.list.d/nginx-mirror-test.list
+          sudo apt-get update
+          sudo apt-get install -y nginx dnsmasq-base
+      - run: bash tests/native-nginx.sh
+
   publish:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: test
+    needs: [test, native-nginx]
     runs-on: ubuntu-latest
     permissions:
       contents: read
