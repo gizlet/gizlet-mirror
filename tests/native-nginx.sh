@@ -33,6 +33,13 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=mirror.test \
 pids+=("$!")
 
 printf '0123456789abcdefghijklmnopqrstuvwxyz\n' > "$work/artifact"
+cat > "$work/temp-paths.conf" <<EOF
+client_body_temp_path $work/client_temp;
+proxy_temp_path $work/proxy_temp;
+fastcgi_temp_path $work/fastcgi_temp;
+uwsgi_temp_path $work/uwsgi_temp;
+scgi_temp_path $work/scgi_temp;
+EOF
 cat > "$work/origin.conf" <<EOF
 daemon off;
 pid $work/origin.pid;
@@ -40,6 +47,7 @@ error_log stderr info;
 events {}
 http {
     access_log off;
+    include $work/temp-paths.conf;
     server {
         listen 127.0.0.1:$origin_port ssl;
         ssl_certificate $work/cert.pem;
@@ -62,7 +70,7 @@ http {
     }
 }
 EOF
-"$nginx" -p "$work/" -c "$work/origin.conf" >"$work/origin.log" 2>&1 &
+"$nginx" -e stderr -p "$work/" -c "$work/origin.conf" >"$work/origin.log" 2>&1 &
 pids+=("$!")
 
 SSL_CERT="$work/cert.pem" SSL_KEY="$work/key.pem" CA_BUNDLE="$work/cert.pem" \
@@ -77,11 +85,12 @@ error_log stderr info;
 events {}
 http {
     access_log off;
+    include $work/temp-paths.conf;
     include $work/mirror.conf;
 }
 EOF
-"$nginx" -t -p "$work/" -c "$work/nginx.conf"
-"$nginx" -p "$work/" -c "$work/nginx.conf" >"$work/mirror.log" 2>&1 &
+"$nginx" -t -e stderr -p "$work/" -c "$work/nginx.conf"
+"$nginx" -e stderr -p "$work/" -c "$work/nginx.conf" >"$work/mirror.log" 2>&1 &
 pids+=("$!")
 
 request() {
