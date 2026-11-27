@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -274,12 +275,16 @@ func main() {
 	if originDomain == "" {
 		originDomain = "gizlet.io"
 	}
+	originHost := "dl." + originDomain
+	if originPort := os.Getenv("ORIGIN_HTTPS_PORT"); originPort != "" && originPort != "443" {
+		originHost = net.JoinHostPort(originHost, originPort)
+	}
 	prefix := strings.Trim(os.Getenv("S3_PREFIX"), "/")
 	if prefix == "" {
 		prefix = "gizlet-mirror"
 	}
 	cache := newDownloadCache(store, os.Getenv("S3_BUCKET"), prefix,
-		&url.URL{Scheme: "https", Host: "dl." + originDomain}, "/cache/s3-upload")
+		&url.URL{Scheme: "https", Host: originHost}, "/cache/s3-upload")
 	server := &http.Server{Addr: "127.0.0.1:8081", Handler: cache, ReadHeaderTimeout: 10 * time.Second}
 	log.Fatal(server.ListenAndServe())
 }

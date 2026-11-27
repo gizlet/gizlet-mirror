@@ -26,18 +26,22 @@ resolver="${RESOLVER:-1.1.1.1 8.8.8.8}"
 acme_root="${ACME_ROOT:-/var/www/acme}"
 https_port="${HTTPS_PORT:-443}"
 http_port="${HTTP_PORT:-80}"
+origin_https_port="${ORIGIN_HTTPS_PORT:-443}"
+cache_path="${CACHE_PATH:-/cache/nginx}"
 cache_max_size="${CACHE_MAX_SIZE:-100g}"
 cache_min_free="${CACHE_MIN_FREE:-5g}"
 cache_inactive="${CACHE_INACTIVE:-30d}"
 download_upstream="https://gizlet_mirror_dl"
 if [[ -n "${S3_BUCKET:-}" ]]; then download_upstream="http://127.0.0.1:8081"; fi
 
-for v in "$ssl_cert" "$ssl_key" "$ca_bundle" "$acme_root"; do
+for v in "$ssl_cert" "$ssl_key" "$ca_bundle" "$acme_root" "$cache_path"; do
   [[ "$v" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "not an absolute path of plain characters: $v" >&2; exit 2; }
 done
 addresses='^[][A-Za-z0-9.: -]+$'
 [[ "$resolver" =~ $addresses ]] || { echo "RESOLVER is not a list of addresses: $resolver" >&2; exit 2; }
-[[ "$https_port" =~ ^[0-9]+$ && "$http_port" =~ ^[0-9]+$ ]] || { echo "ports must be numbers" >&2; exit 2; }
+for port in "$https_port" "$http_port" "$origin_https_port"; do
+  [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] && (( port <= 65535 )) || { echo "invalid port: $port" >&2; exit 2; }
+done
 size='^[1-9][0-9]*[kKmMgG]?$'
 duration='^[1-9][0-9]*[smhdwMy]?$'
 [[ "$cache_max_size" =~ $size && "$cache_min_free" =~ $size ]] || { echo "invalid cache size (example: 500g)" >&2; exit 2; }
@@ -57,6 +61,8 @@ sed \
   -e "s|@ACME_ROOT@|$acme_root|g" \
   -e "s|@HTTPS_PORT@|$https_port|g" \
   -e "s|@HTTP_PORT@|$http_port|g" \
+  -e "s|@ORIGIN_HTTPS_PORT@|$origin_https_port|g" \
+  -e "s|@CACHE_PATH@|$cache_path|g" \
   -e "s|@CACHE_MAX_SIZE@|$cache_max_size|g" \
   -e "s|@CACHE_MIN_FREE@|$cache_min_free|g" \
   -e "s|@CACHE_INACTIVE@|$cache_inactive|g" \

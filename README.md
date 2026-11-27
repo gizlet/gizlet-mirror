@@ -29,6 +29,7 @@ Create the host directories first. The container requires a mount at `/cache` an
 | `RESOLVER` | `1.1.1.1 8.8.8.8` | DNS resolvers used by nginx |
 | `ACME_ROOT` | `/var/www/acme` | Webroot for HTTP certificate challenges |
 | `HTTP_PORT`, `HTTPS_PORT` | `80`, `443` | Container listen ports |
+| `ORIGIN_HTTPS_PORT` | `443` | HTTPS port on the origin hosts |
 | `CACHE_MAX_SIZE` | `100g` | nginx disk cache target size |
 | `CACHE_MIN_FREE` | `5g` | Free space nginx tries to maintain on the cache filesystem |
 | `CACHE_INACTIVE` | `30d` | Evict entries that have not been accessed for this long |
@@ -59,4 +60,8 @@ The proxy rewrites Gizlet URLs, redirects, cookie domains, and account CORS head
 
 ## Development
 
-Run `go test -race ./...`, `docker build -t gizlet-mirror:test .`, and `bash tests/disk.sh`. The disk test uses a local HTTPS origin. `./smoke.sh` checks the live Gizlet origin with Hurl and includes one sign-in attempt with an invalid password.
+Run `bash tests/native-nginx.sh` with nginx 1.27.3 or newer, dnsmasq, curl, and OpenSSL on your path. The script starts local DNS and HTTPS fixtures on high ports, renders the config with a temporary `CACHE_PATH`, and checks host routing, URL rewriting, and cached Range downloads. It uses an isolated nginx prefix and runs as the current user.
+
+Run `go test -race ./...`, `docker build -t gizlet-mirror:test .`, and `bash tests/disk.sh` to test the S3 helper and the container. `./smoke.sh` checks the live Gizlet origin with Hurl and includes one sign-in attempt with an invalid password.
+
+GitHub Actions runs the native nginx and container tests on pull requests and on `main`. After both jobs pass on `main`, the workflow publishes the image to GHCR with a `sha-<commit>` tag and updates `latest` for the current head.
