@@ -20,7 +20,7 @@ cleanup() { docker rm -fv "$name" >/dev/null 2>&1 || true; rm -rf "$work"; }
 trap cleanup EXIT
 
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=$mirror" \
-  -addext "subjectAltName=DNS:$mirror,DNS:www.$mirror,DNS:api.$mirror,DNS:dl.$mirror" \
+  -addext "subjectAltName=DNS:$mirror,DNS:www.$mirror" \
   -keyout "$work/privkey.pem" -out "$work/fullchain.pem" 2>/dev/null
 mkdir -p "$work/acme"
 
@@ -41,7 +41,7 @@ for _ in $(seq 1 40); do
 done
 
 connect=()
-for h in "$mirror" "www.$mirror" "api.$mirror" "dl.$mirror"; do
+for h in "$mirror" "www.$mirror"; do
   connect+=(--connect-to "$h:443:127.0.0.1:$https_port" --connect-to "$h:80:127.0.0.1:$http_port")
 done
 

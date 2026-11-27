@@ -14,21 +14,21 @@ if [[ ! "$origin" =~ $domain ]]; then
   echo "ORIGIN_DOMAIN is not a domain: $origin" >&2
   exit 2
 fi
-if [[ "$mirror" == "$origin" || "$mirror" == *".$origin" ]]; then
-  echo "the mirror domain must not be $origin or one of its subdomains" >&2
-  exit 2
-fi
+case "$mirror" in
+  "$origin"|"www.$origin")
+    echo "the mirror domain conflicts with a Gizlet origin host: $mirror" >&2
+    exit 2
+    ;;
+esac
 
 site_domain="$mirror"
 site_server_names="www.$mirror"
-proxy_server_names="$mirror api.$mirror"
 site_response="301 https://$mirror\$request_uri"
 case "${SERVE_SITE-true}" in
   true) ;;
   false)
     site_domain="$origin"
-    site_server_names="$mirror www.$mirror"
-    proxy_server_names="api.$mirror"
+    site_server_names="www.$mirror"
     site_response=404
     ;;
   *) echo "SERVE_SITE must be true or false" >&2; exit 2 ;;
@@ -48,7 +48,7 @@ cache_max_size=""
 cache_min_free=""
 cache_inactive=""
 download_buffering=off
-download_upstream="https://gizlet_mirror_dl"
+asset_upstream="https://gizlet_mirror_site"
 case "${CACHE_ENABLED-true}" in
   true)
     cache_path="${CACHE_PATH:-/cache/nginx}"
@@ -61,7 +61,9 @@ case "${CACHE_ENABLED-true}" in
     [[ "$cache_max_size" =~ $size && "$cache_min_free" =~ $size ]] || { echo "invalid cache size (example: 500g)" >&2; exit 2; }
     [[ "$cache_inactive" =~ $duration ]] || { echo "invalid CACHE_INACTIVE (example: 30d)" >&2; exit 2; }
     download_buffering=on
-    if [[ -n "${S3_BUCKET:-}" ]]; then download_upstream="http://127.0.0.1:8081"; fi
+    if [[ -n "${S3_BUCKET:-}" ]]; then
+      asset_upstream="http://127.0.0.1:8081"
+    fi
     ;;
   false) cache_filter='/^@CACHE_BEGIN@$/,/^@CACHE_END@$/d' ;;
   *) echo "CACHE_ENABLED must be true or false" >&2; exit 2 ;;
@@ -87,7 +89,6 @@ sed \
   -e "s|@ORIGIN@|$origin|g" \
   -e "s|@SITE_DOMAIN@|$site_domain|g" \
   -e "s|@SITE_SERVER_NAMES@|$site_server_names|g" \
-  -e "s|@PROXY_SERVER_NAMES@|$proxy_server_names|g" \
   -e "s|@SITE_RESPONSE@|$site_response|g" \
   -e "s|@SSL_CERT@|$ssl_cert|g" \
   -e "s|@SSL_KEY@|$ssl_key|g" \
@@ -102,5 +103,6 @@ sed \
   -e "s|@CACHE_MIN_FREE@|$cache_min_free|g" \
   -e "s|@CACHE_INACTIVE@|$cache_inactive|g" \
   -e "s|@DOWNLOAD_BUFFERING@|$download_buffering|g" \
-  -e "s|@DOWNLOAD_UPSTREAM@|$download_upstream|g" \
+  -e "s|@ASSET_UPSTREAM@|$asset_upstream|g" \
+  -e "s|@SERVE_SITE@|${SERVE_SITE-true}|g" \
   "$here/nginx.conf.template"
