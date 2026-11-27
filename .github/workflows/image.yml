@@ -25,9 +25,6 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: test
     runs-on: ubuntu-latest
-    concurrency:
-      group: mirror-image-main
-      cancel-in-progress: true
     permissions:
       contents: read
       packages: write
@@ -45,6 +42,12 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ghcr.io/gizlet/gizlet-mirror:latest
-            ghcr.io/gizlet/gizlet-mirror:sha-${{ github.sha }}
+          tags: ghcr.io/gizlet/gizlet-mirror:sha-${{ github.sha }}
+      - name: Update latest from the current main
+        run: |
+          current_head="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$current_head" == "$GITHUB_SHA" ]]; then
+            docker buildx imagetools create \
+              --tag ghcr.io/gizlet/gizlet-mirror:latest \
+              "ghcr.io/gizlet/gizlet-mirror:sha-$GITHUB_SHA"
+          fi
